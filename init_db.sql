@@ -32,3 +32,28 @@ CREATE TABLE IF NOT EXISTS silpo_products (
 CREATE INDEX IF NOT EXISTS idx_silpo_products_category ON silpo_products(category_name);
 CREATE INDEX IF NOT EXISTS idx_silpo_products_shop ON silpo_products(shop);
 CREATE INDEX IF NOT EXISTS idx_silpo_products_is_economy ON silpo_products(is_economy);
+
+-- Створення таблиці atb_products для парсера ATB
+CREATE TABLE IF NOT EXISTS atb_products (
+    sku TEXT PRIMARY KEY,
+    name TEXT,
+    brand TEXT,
+    weight TEXT,
+    unit TEXT,
+    url TEXT,
+    current_price NUMERIC,
+    regular_price NUMERIC,
+    discount TEXT,
+    is_promo BOOLEAN,
+    is_available BOOLEAN,
+    is_economy BOOLEAN,
+    category_name TEXT,
+    category_url TEXT,
+    shop TEXT,
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Індекси для atb_products
+CREATE INDEX IF NOT EXISTS idx_atb_products_category ON atb_products(category_name);
+CREATE INDEX IF NOT EXISTS idx_atb_products_shop ON atb_products(shop);
+CREATE INDEX IF NOT EXISTS idx_atb_products_is_economy ON atb_products(is_economy);
