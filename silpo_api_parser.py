@@ -192,7 +192,7 @@ def fetch_categories_from_menu(session: cffi_requests.Session) -> List[Tuple[str
             return categories
         soup = BeautifulSoup(resp.text, "html.parser")
         seen: Set[str] = set()
-        for a in soup.select("a.menu-categories__link[href]"):
+        for a in soup.select("a[href]"):
             href = a["href"]
             if not href.startswith("/category/"):
                 continue
