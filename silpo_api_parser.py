@@ -52,16 +52,13 @@ from tqdm import tqdm
 if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
-# Load environment variables from .env file if it exists
 load_dotenv()
 
-# ─── Налаштування ──────────────────────────────────────────────────────────────
-
 BASE_URL = "https://silpo.ua"
-BRANCH_ID = "00000000-0000-0000-0000-000000000000"  # дефолтна ("гостьова") філія
+BRANCH_ID = "00000000-0000-0000-0000-000000000000"  
 API_PRODUCTS_URL = f"https://sf-ecom-api.silpo.ua/v1/uk/branches/{BRANCH_ID}/products"
 
-CINOTYZHYKY_PROMO_ID = "cinotyzhyky"  # аналог "Економія" в АТБ / is_economy
+CINOTYZHYKY_PROMO_ID = "cinotyzhyky"  
 
 HEADERS = {
     "User-Agent": (
@@ -77,9 +74,6 @@ PAGE_SIZE = 100
 BATCH_SIZE = 1000
 TABLE_NAME = "silpo_products"
 
-# Перші 14 полів 1-в-1 повторюють CSV_FIELDS з test_parser.py (АТБ) —
-# для прямого мерджу. Решта — специфічні для Сільпо (тепер набагато
-# точніші, бо беруться прямо з API, а не вгадуються з HTML).
 CSV_FIELDS = [
     "sku", "name", "brand", "weight", "unit",
     "url", "current_price", "regular_price", "discount",
@@ -92,12 +86,9 @@ CSV_FIELDS = [
 DELAY_BETWEEN_PAGES = 0.5
 DELAY_BETWEEN_CATEGORIES = 1.0
 
-# Supabase settings
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-
-# ─── Сесія ─────────────────────────────────────────────────────────────────────
 
 def make_session() -> cffi_requests.Session:
     s = cffi_requests.Session(impersonate="chrome124")
@@ -108,8 +99,6 @@ def make_session() -> cffi_requests.Session:
     time.sleep(1)
     return s
 
-
-# ─── Утиліти ───────────────────────────────────────────────────────────────────
 
 def safe_float(value: Any) -> Optional[float]:
     if value is None:
@@ -143,8 +132,6 @@ def slug_to_name(slug: str) -> str:
     return name.replace("-", " ").title()
 
 
-# ─── Database Initialization ─────────────────────────────────────────────────────
-
 def init_database():
     """Skip database initialization - table must be created manually in Supabase SQL Editor"""
     print(f"[DB] Note: Table '{TABLE_NAME}' must be created manually in Supabase SQL Editor")
@@ -174,8 +161,6 @@ def batch_upsert_to_supabase(client: Client, products: List[Dict[str, Any]]):
             print(f"[DB] Error upserting batch: {e}")
             raise
 
-
-# ─── Пошук категорій (з HTML-меню — публічного JSON-ендпоінта не знайдено) ────
 
 def fetch_categories_from_menu(session: cffi_requests.Session) -> List[Tuple[str, str, str]]:
     """
@@ -216,8 +201,6 @@ def fetch_categories_from_menu(session: cffi_requests.Session) -> List[Tuple[str
         print(f"[menu] Помилка парсингу: {e}")
     return categories
 
-
-# ─── Робота з API товарів ───────────────────────────────────────────────────────
 
 def fetch_products_page(
     session: cffi_requests.Session,
@@ -336,7 +319,7 @@ def scrape_category_api(
             row = map_item_to_row(item, category_name, category_url)
             key = row["sku"] if row["sku"] else row["url"]
             if key and key in seen_skus:
-                continue  # дублікат (може повторитись між підкатегоріями)
+                continue  
             seen_skus.add(key)
             new_products.append(row)
             added += 1
@@ -358,7 +341,7 @@ def scrape_category_api(
         if total and offset >= total:
             break
         if len(items) < PAGE_SIZE:
-            # сервер повернув менше, ніж просили — вважаємо, що це остання сторінка
+            
             break
 
         time.sleep(DELAY_BETWEEN_PAGES)
@@ -366,8 +349,6 @@ def scrape_category_api(
     pbar_pages.close()
     return new_products
 
-
-# ─── Головна функція ───────────────────────────────────────────────────────────
 
 def main():
     print("=" * 60)

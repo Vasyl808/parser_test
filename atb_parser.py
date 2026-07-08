@@ -30,13 +30,10 @@ from dotenv import load_dotenv
 from supabase import create_client, Client
 from tqdm import tqdm
 
-# Примусово UTF-8 для stdout (актуально для Windows cp1251)
 if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
 load_dotenv()
-
-# ─── Налаштування ──────────────────────────────────────────────────────────────
 
 BASE_URL = "https://www.atbmarket.com"
 ECONOMY_URL = f"{BASE_URL}/catalog/economy"
@@ -63,28 +60,27 @@ CSV_FIELDS = [
     "category_name", "category_url", "shop",
 ]
 
-# Затримка між запитами (секунд)
 DELAY_BETWEEN_PAGES = 0.8
 DELAY_BETWEEN_CATEGORIES = 1.5
 
-# Supabase settings
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 TABLE_NAME = "atb_products"
 BATCH_SIZE = 1000
 
-# ─── Database Initialization ─────────────────────────────────────────────────────
 
 def init_database():
     """Skip database initialization - table must be created manually in Supabase SQL Editor"""
     print(f"[DB] Note: Table '{TABLE_NAME}' must be created manually in Supabase SQL Editor")
     print(f"[DB] See init_db.sql for the table creation script")
 
+
 def get_supabase_client() -> Client:
     """Create and return Supabase client"""
     if not SUPABASE_URL or not SUPABASE_KEY:
         raise ValueError("SUPABASE_URL and SUPABASE_KEY environment variables must be set")
     return create_client(SUPABASE_URL, SUPABASE_KEY)
+
 
 def batch_upsert_to_supabase(client: Client, products: List[Dict[str, Any]]):
     """Upsert products to Supabase in batches"""
@@ -102,8 +98,6 @@ def batch_upsert_to_supabase(client: Client, products: List[Dict[str, Any]]):
             raise
 
 
-# ─── Сесія ─────────────────────────────────────────────────────────────────────
-
 def make_session() -> cffi_requests.Session:
     """Сесія curl_cffi з імітацією Chrome — обходить Cloudflare TLS fingerprint."""
     s = cffi_requests.Session(impersonate="chrome124")
@@ -114,8 +108,6 @@ def make_session() -> cffi_requests.Session:
     time.sleep(1)
     return s
 
-
-# ─── Утиліти ───────────────────────────────────────────────────────────────────
 
 def safe_float(value: Any) -> Optional[float]:
     if value is None:
@@ -146,8 +138,6 @@ def get_last_page(html: str) -> int:
                 last = p
     return last
 
-
-# ─── Пошук категорій ───────────────────────────────────────────────────────────
 
 def fetch_categories_from_sitemap(session: cffi_requests.Session) -> List[Tuple[str, str]]:
     categories: List[Tuple[str, str]] = []
@@ -199,8 +189,6 @@ def fetch_categories_from_html(session: cffi_requests.Session) -> List[Tuple[str
         print(f"[html] Помилка: {e}")
     return categories
 
-
-# ─── Парсинг товарів ───────────────────────────────────────────────────────────
 
 def extract_json_blobs(html: str) -> List[Any]:
     soup = BeautifulSoup(html, "html.parser")
@@ -395,9 +383,8 @@ def extract_products_from_html(
     return products
 
 
-# ─── ProductMap ───────────────────────────────────────────────────────────────
-
 ProductMap = Dict[str, Dict[str, Any]]
+
 
 def merge_product(products_map: ProductMap, product: Dict[str, Any]) -> str:
     key: str = product["sku"] if product["sku"] else product["url"]
@@ -418,8 +405,6 @@ def merge_product(products_map: ProductMap, product: Dict[str, Any]) -> str:
         existing["is_economy"] = True
     return "updated"
 
-
-# ─── Парсинг однієї категорії ──────────────────────────────────────────────────
 
 def scrape_category(
     session: cffi_requests.Session,
@@ -501,8 +486,6 @@ def scrape_category(
     pbar_pages.close()
     return new_count, updated_count
 
-
-# ─── Головна функція ───────────────────────────────────────────────────────────
 
 def main():
     print("=" * 60)
@@ -592,6 +575,7 @@ def main():
     print(f"  З них «Ціна тижня»: {economy_count}")
     print(f"  Товарів у кількох категоріях: {multi_cat_count}")
     print(f"{'=' * 60}\n")
+
 
 if __name__ == "__main__":
     main()
