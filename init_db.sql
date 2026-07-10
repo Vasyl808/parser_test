@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS silpo_products (
     bulk_qty INTEGER,
     rating NUMERIC,
     rating_count INTEGER,
-    stock INTEGER,
+    stock NUMERIC,
     weighted BOOLEAN,
     section_slug TEXT,
     promotions TEXT,

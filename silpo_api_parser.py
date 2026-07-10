@@ -110,6 +110,15 @@ def safe_float(value: Any) -> Optional[float]:
     return float(m.group(0)) if m else None
 
 
+def safe_int(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    try:
+        return int(float(value))
+    except (ValueError, TypeError):
+        return None
+
+
 def parse_weight_unit(text: str) -> Tuple[str, str]:
     """'345г' -> ('345', 'г'); '0,3кг' -> ('0.3', 'кг')"""
     if not text:
@@ -232,14 +241,15 @@ def map_item_to_row(item: Dict[str, Any], category_name: str, category_url: str)
 
     special_prices = item.get("specialPrices") or []
     bulk_price = safe_float(special_prices[0].get("price")) if special_prices else None
-    bulk_qty = special_prices[0].get("count") if special_prices else None
+    bulk_qty = safe_int(special_prices[0].get("count")) if special_prices else None
 
     promotions = item.get("promotions") or []
     promo_ids = [p.get("id", "") for p in promotions if p.get("id")]
     is_economy = CINOTYZHYKY_PROMO_ID in promo_ids
 
-    stock = item.get("stock")
-    is_available = True if stock is None else (stock > 0)
+    stock_val = item.get("stock")
+    stock_num = safe_float(stock_val)
+    is_available = True if stock_num is None else (stock_num > 0)
 
     slug = item.get("slug", "")
     url = urljoin(BASE_URL, f"/product/{slug}") if slug else ""
@@ -266,9 +276,9 @@ def map_item_to_row(item: Dict[str, Any], category_name: str, category_url: str)
         "category_url": category_url,
         "bulk_price": bulk_price,
         "bulk_qty": bulk_qty,
-        "rating": item.get("guestProductRating"),
-        "rating_count": item.get("guestProductRatingCount"),
-        "stock": stock,
+        "rating": safe_float(item.get("guestProductRating")),
+        "rating_count": safe_int(item.get("guestProductRatingCount")),
+        "stock": stock_num,
         "weighted": item.get("weighted", False),
         "section_slug": item.get("sectionSlug", ""),
         "promotions": ",".join(promo_ids),
