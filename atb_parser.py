@@ -49,6 +49,338 @@ HEADERS = {
     ),
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "uk-UA,uk;q=0.9,en;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+}
+
+OUTPUT_CSV = "atb_full.csv"
+
+CSV_FIELDS = [
+    "sku", "name", "brand", "weight", "unit",
+    "url", "current_price", "regular_price", "discount",
+    "is_promo", "is_available", "is_economy",
+    "category_name", "category_url", "shop",
+]
+
+DELAY_BETWEEN_PAGES = 0.8
+DELAY_BETWEEN_CATEGORIES = 1.5
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+TABLE_NAME = "atb_products"
+BATCH_SIZE = 1000
+
+
+def init_database():
+    """Skip database initialization - table must be created manually in Supabase SQL Editor"""
+    print(f"[DB] Note: Table '{TABLE_NAME}' must be created manually in Supabase SQL Editor")
+    print(f"[DB] See init_db.sql for the table creation script")
+
+
+def get_supabase_client() -> Client:
+    """Create and return Supabase client"""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise ValueError("SUPABASE_URL and SUPABASE_KEY environment variables must be set")
+    return create_client(SUPABASE_URL, SUPABASE_KEY)
+
+
+def batch_upsert_to_supabase(client: Client, products: List[Dict[str, Any]]):
+    """Upsert products to Supabase in batches"""
+    if not products:
+        return
+    
+    total = len(products)
+    for i in range(0, total, BATCH_SIZE):
+        batch = products[i:i + BATCH_SIZE]
+        try:
+            client.table(TABLE_NAME).upsert(batch).execute()
+            print(f"[DB] Upserted batch {i//BATCH_SIZE + 1}/{(total + BATCH_SIZE - 1)//BATCH_SIZE}: {len(batch)} items")
+        except Exception as e:
+            print(f"[DB] Error upserting batch: {e}")
+            raise
+
+
+def make_session() -> cffi_requests.Session:
+    """Сесія curl_cffi з імітацією Chrome — обходить Cloudflare TLS fingerprint."""
+    s = cffi_requests.Session(impersonate="chrome124")
+    try:
+        s.get(BASE_URL, headers=HEADERS, timeout=20)
+    except Exception:
+        pass
+    time.sleep(1)
+    return s
+
+
+def safe_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    cleaned = str(value).replace("\xa0", "").replace(" ", "").replace(",", ".")
+    m = re.search(r"-?\d+(?:\.\d+)?", cleaned)
+    return float(m.group(0)) if m else None
+
+
+def slug_to_name(slug: str) -> str:
+    """Перетворює URL-слаг на читабельну назву."""
+    name = re.sub(r"^\d+-", "", slug)
+    return name.replace("-", " ").title()
+
+
+def get_last_page(html: str) -> int:
+    """Знаходить номер останньої сторінки з пагінації."""
+    soup = BeautifulSoup(html, "html.parser")
+    last = 1
+    for a in soup.select("a.product-pagination__link"):
+        href = a.get("href", "")
+        m = re.search(r"[?&]page=(\d+)", href)
+        if m:
+            p = int(m.group(1))
+            if p > last:
+                last = p
+    return last
+
+
+def fetch_categories_from_sitemap(session: cffi_requests.Session) -> List[Tuple[str, str]]:
+    categories: List[Tuple[str, str]] = []
+    print(f"[sitemap] Завантажую {SITEMAP_URL} ...")
+    try:
+        resp = session.get(SITEMAP_URL, headers=HEADERS, timeout=30)
+        if resp.status_code != 200:
+            print(f"[sitemap] Помилка HTTP {resp.status_code}")
+            return categories
+        root = ET.fromstring(resp.text)
+        ns = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+        locs = [el.text.strip() for el in root.findall(".//sm:loc", ns) if el.text]
+        for loc in locs:
+            path = urlparse(loc).path
+            if not re.match(r"^/catalog/[^/]+$", path):
+                continue
+            slug = path.rstrip("/").split("/")[-1]
+            name = slug_to_name(slug)
+            categories.append((loc, name))
+        print(f"[sitemap] Знайдено {len(categories)} категорій")
+    except Exception as e:
+        print(f"[sitemap] Помилка парсингу: {e}")
+    return categories
+
+
+def fetch_categories_from_html(session: cffi_requests.Session) -> List[Tuple[str, str]]:
+    categories: List[Tuple[str, str]] = []
+    print(f"[html] Шукаю категорії на {BASE_URL}/catalog ...")
+    try:
+        resp = session.get(f"{BASE_URL}/catalog", headers=HEADERS, timeout=30)
+        if resp.status_code != 200:
+            print(f"[html] Помилка HTTP {resp.status_code}")
+            return categories
+        soup = BeautifulSoup(resp.text, "html.parser")
+        seen: Set[str] = set()
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            if not re.match(r"^/catalog/[^/?#]+$", href):
+                continue
+            full_url = urljoin(BASE_URL, href)
+            if full_url in seen:
+                continue
+            seen.add(full_url)
+            slug = href.rstrip("/").split("/")[-1]
+            name = slug_to_name(slug)
+            categories.append((full_url, name))
+        print(f"[html] Знайдено {len(categories)} категорій")
+    except Exception as e:
+        print(f"[html] Помилка: {e}")
+    return categories
+
+
+def extract_json_blobs(html: str) -> List[Any]:
+    soup = BeautifulSoup(html, "html.parser")
+    blobs = []
+    for script in soup.find_all("script"):
+        txt = script.string if script.string is not None else script.get_text(strip=False)
+        if not txt:
+            continue
+        t = txt.strip()
+        if script.get("type") == "application/ld+json":
+            try:
+                blobs.append(json.loads(t))
+                continue
+            except Exception:
+                pass
+        if t.startswith("{") or t.startswith("["):
+            try:
+                blobs.append(json.loads(t))
+                continue
+            except Exception:
+                pass
+        markers = [
+            "__NEXT_DATA__", "__NUXT__",
+            "window.__INITIAL_STATE__", "window.__PRELOADED_STATE__",
+            "window.__APOLLO_STATE__",
+        ]
+        if any(mk in t for mk in markers):
+            start_candidates = [i for i in (t.find("{"), t.find("[")) if i != -1]
+            if start_candidates:
+                start = min(start_candidates)
+                end = max(t.rfind("}"), t.rfind("]"))
+                if end > start:
+                    try:
+                        blobs.append(json.loads(t[start: end + 1]))
+                    except Exception:
+                        pass
+    return blobs
+
+
+def iter_dicts(obj: Any):
+    if isinstance(obj, dict):
+        yield obj
+        for v in obj.values():
+            yield from iter_dicts(v)
+    elif isinstance(obj, list):
+        for item in obj:
+            yield from iter_dicts(item)
+
+
+def looks_like_product(d: Dict[str, Any]) -> bool:
+    keys = {k.lower() for k in d}
+    has_name = any(k in keys for k in ("name", "title"))
+    has_price = any(k in keys for k in ("price", "currentprice", "regularprice"))
+    return has_name and has_price
+
+
+def extract_products_from_html(
+    html: str,
+    page_url: str,
+    category_name: str,
+    category_url: str,
+    is_economy: bool,
+) -> List[Dict[str, Any]]:
+    products: List[Dict[str, Any]] = []
+    soup = BeautifulSoup(html, "html.parser")
+
+    items: List[Any] = []
+    for sel in ["article.catalog-item", "div.catalog-item", "li.catalog-item"]:
+        items = soup.select(sel)
+        if items:
+            break
+
+    for card in items:
+        name = ""
+        for s in [".catalog-item__title", "h3", "h2", ".product-title", ".product-name"]:
+            el = card.select_one(s)
+            if el:
+                name = el.get_text(strip=True)
+                break
+        if not name:
+            continue
+
+        current_price: Optional[float] = None
+        el_price = card.select_one("data.product-price__top")
+        if el_price and el_price.get("value"):
+            current_price = safe_float(el_price["value"])
+        else:
+            for s in [".catalog-item__price-action", ".price-sale",
+                      ".catalog-item__price", "[class*='price']"]:
+                el = card.select_one(s)
+                if el:
+                    current_price = safe_float(el.get_text(strip=True))
+                    if current_price is not None:
+                        break
+
+        regular_price = current_price
+        el_old = card.select_one("data.product-price__bottom")
+        if el_old and el_old.get("value"):
+            regular_price = safe_float(el_old["value"])
+        else:
+            el = card.select_one(
+                "[class*='price-old'], [class*='old-price'], .catalog-item__price--old"
+            )
+            if el:
+                rp = safe_float(el.get_text(strip=True))
+                if rp is not None:
+                    regular_price = rp
+
+        # Extract product page URL (not wishlist or other links)
+        product_link = (
+            card.select_one(".catalog-item__title a[href]")
+            or card.select_one("a.catalog-item__photo-link[href]")
+            or card.find("a", href=lambda h: h and "/product/" in h)
+        )
+        url = urljoin(page_url, product_link["href"]) if product_link else ""
+
+        cart = card.select_one(".b-addToCart")
+        sku = ""
+        brand = ""
+        weight = ""
+        unit = ""
+        discount = ""
+        if cart:
+            sku = cart.get("data-productid", "")
+            brand = cart.get("data-brand", "")
+            weight = cart.get("data-weight", "")
+            unit = cart.get("data-current-measure", "")
+            discount = cart.get("data-discount", "")
+
+        if not sku and url:
+            m = re.search(r"/product/(\d+)", url)
+            if m:
+                sku = m.group(1)
+
+        card_classes = card.get("class", [])
+        is_available = "catalog-item--not-available" not in card_classes
+
+        is_promo = bool(
+            regular_price and current_price and regular_price > current_price
+        )
+
+        products.append({
+            "sku": sku,
+            "name": name,
+            "brand": brand,
+            "weight": weight,
+            "unit": unit,
+            "url": url,
+            "current_price": current_price,
+            "regular_price": regular_price,
+            "discount": discount,
+            "is_promo": is_promo,
+            "is_available": is_available,
+            "is_economy": is_economy,
+            "category_name": category_name,
+            "category_url": category_url,
+            "shop": "atb",
+        })
+
+    if not products:
+        for blob in extract_json_blobs(html):
+            for d in iter_dicts(blob):
+                if not isinstance(d, dict) or not looks_like_product(d):
+                    continue
+                name = d.get("name") or d.get("title") or ""
+                if not name:
+                    continue
+                current_price = safe_float(d.get("price") or d.get("currentPrice"))
+                regular_price = (
+                    safe_float(d.get("oldPrice") or d.get("regularPrice"))
+                    or current_price
+                )
+                url = d.get("url", "")
+                if url.startswith("/"):
+                    url = urljoin(page_url, url)
+                is_promo = bool(
+                    regular_price and current_price and regular_price > current_price
+                )
+                products.append({
+                    "sku": str(d.get("id") or d.get("sku") or ""),
+                    "name": name,
+                    "brand": str(d.get("brand", "")),
+                    "weight": "",
+                    "unit": "",
+                    "url": url,
+                    "current_price": current_price,
+                    "regular_price": regular_price,
+                    "discount": "",
+                    "is_promo": is_promo,
+                    "is_available": True,
                     "is_economy": is_economy,
                     "category_name": category_name,
                     "category_url": category_url,
