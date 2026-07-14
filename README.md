@@ -157,6 +157,62 @@ schedule:
 ### Помилка upsert
 Переконайтеся, що використовуєте `service_role key` замість `anon key` для повного доступу до запису.
 
+## ATB Shopping Agent MVP
+
+Цей MVP додає уніфікований каталог поверх `atb_products` і FastAPI API для питань про покупки.
+
+### 1. Оновіть схему БД
+
+Виконайте весь `init_db.sql` у Supabase SQL Editor. Він створить raw-таблиці парсерів і unified-шар:
+
+- `stores`
+- `store_products`
+- `canonical_categories`
+- `category_aliases`
+- `canonical_products`
+- `product_matches`
+- view `shopping_products`
+
+### 2. Засійте unified catalog з уже існуючого ATB
+
+Якщо `atb_products` вже заповнена, не треба повторно парсити сайт:
+
+```bash
+python sync_atb_catalog.py
+```
+
+Нові запуски `python atb_parser.py` тепер автоматично оновлюють і `atb_products`, і unified catalog.
+
+### 3. Запустіть API
+
+```bash
+uvicorn shopping_agent.main:app --reload
+```
+
+Перевірка:
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+Приклад запиту до агента:
+
+```bash
+curl -X POST http://127.0.0.1:8000/chat \
+  -H "Content-Type: application/json" \
+  -d "{\"message\":\"де дешеве молоко в атб?\",\"limit\":5}"
+```
+
+Корисні endpoints:
+
+- `POST /chat` — головний агент.
+- `GET /products/search?q=молоко`
+- `GET /products/promos?q=кава`
+- `GET /products/cheapest?q=сир`
+- `GET /stats`
+
+`GEMINI_API_KEY` опціональний. Якщо ключ не заданий, API все одно відповідає на основі даних з БД через deterministic fallback. Якщо ключ заданий, модель формує природну відповідь, але контекст бере тільки з `shopping_products`.
+
 ## Ліцензія
 
 MIT

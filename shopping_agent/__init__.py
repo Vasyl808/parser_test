@@ -1,0 +1,2 @@
+"""FastAPI shopping agent package."""
+

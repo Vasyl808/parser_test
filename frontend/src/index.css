@@ -1,0 +1,97 @@
+/* ===================================================================
+   Design System — Розумний Кошик (Senior UX/UI)
+   =================================================================== */
+
+/* ---------- Reset & Base ---------- */
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  /* Palette */
+  --bg:           #FAFAF8;
+  --bg-glass:     rgba(250, 250, 248, 0.85);
+  
+  --card:         #FFFFFF;
+  --card-shadow:  0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+  --card-shadow-hover: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.04);
+  
+  --accent:       #2F9E44; /* Свіжий зелений */
+  --accent-hover: #2B8A3E;
+  --accent-light: #EBFBEE; /* Дуже світлий зелений для фонів */
+  
+  --promo:        #FF6B4A; /* Кораловий для акцій */
+  --promo-light:  #FFF0EC;
+  
+  --text:         #1F2937; /* Темний антрацит */
+  --text-secondary: #4B5563; /* Помірно сірий для читабельності */
+  --text-muted:   #9CA3AF;
+  
+  --border:       #E5E7EB;
+  --border-light: #F3F4F6;
+
+  /* Typography */
+  --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --fs-xs:   0.75rem;   /* 12px */
+  --fs-sm:   0.875rem;  /* 14px */
+  --fs-base: 1rem;      /* 16px */
+  --fs-md:   1.125rem;  /* 18px */
+  --fs-lg:   1.25rem;   /* 20px */
+  --fs-xl:   1.5rem;    /* 24px */
+  --lh:      1.6;
+
+  /* Spacing & Radii */
+  --radius:    16px;
+  --radius-sm: 10px;
+  --radius-lg: 24px;
+  --radius-full: 9999px;
+
+  /* Transitions */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font);
+  font-size: var(--fs-base);
+  line-height: var(--lh);
+  color: var(--text);
+  background: var(--bg);
+  min-height: 100dvh;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+button {
+  font-family: var(--font);
+  cursor: pointer;
+  border: none;
+  outline: none;
+  background: none;
+}
+
+/* ---------- Scrollbar ---------- */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { 
+  background: var(--border); 
+  border-radius: 4px; 
+}
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ---------- App Layout ---------- */
+#root {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+}

@@ -119,6 +119,23 @@ def safe_int(value: Any) -> Optional[int]:
         return None
 
 
+def sanitize_product_for_db(product: Dict[str, Any]) -> Dict[str, Any]:
+    """Coerce types so PostgREST/PostgreSQL INTEGER columns never receive 164.0-style floats."""
+    row = dict(product)
+    for field in ("bulk_qty", "rating_count"):
+        val = row.get(field)
+        if val is not None:
+            row[field] = safe_int(val)
+    stock = row.get("stock")
+    if stock is not None:
+        f = safe_float(stock)
+        if f is not None and f == int(f):
+            row["stock"] = int(f)
+        elif f is not None:
+            row["stock"] = f
+    return row
+
+
 def parse_weight_unit(text: str) -> Tuple[str, str]:
     """'345г' -> ('345', 'г'); '0,3кг' -> ('0.3', 'кг')"""
     if not text:
@@ -162,7 +179,7 @@ def batch_upsert_to_supabase(client: Client, products: List[Dict[str, Any]]):
     
     total = len(products)
     for i in range(0, total, BATCH_SIZE):
-        batch = products[i:i + BATCH_SIZE]
+        batch = [sanitize_product_for_db(p) for p in products[i:i + BATCH_SIZE]]
         try:
             result = client.table(TABLE_NAME).upsert(batch).execute()
             print(f"[DB] Upserted batch {i//BATCH_SIZE + 1}/{(total + BATCH_SIZE - 1)//BATCH_SIZE}: {len(batch)} items")
@@ -411,6 +428,12 @@ def main():
     
     batch_upsert_to_supabase(supabase, all_products)
     
+    print(f"\n[КРОК 5.1] Синхронізація unified catalog для shopping agent...")
+    from unified_catalog import sync_silpo_products_to_unified_catalog
+    catalog_stats = sync_silpo_products_to_unified_catalog(supabase, all_products)
+    for key, value in catalog_stats.items():
+        print(f"  {key}: {value}")
+
     print(f"  [OK] Дані успішно збережено в Supabase")
     print(f"\n{'=' * 60}")
     print(f"  Готово! {len(all_products)} унікальних товарів")

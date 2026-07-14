@@ -2,8 +2,8 @@ name: ATB Parser
 
 on:
   schedule:
-    # Run every Sunday at 02:00 UTC
-    - cron: '0 2 * * 0'
+    # Run every Wednesday at 02:00 UTC (05:00 Kyiv summer / 04:00 Kyiv winter)
+    - cron: '0 2 * * 3'
   workflow_dispatch:  # Allow manual trigger
 
 jobs:
@@ -32,3 +32,9 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: python atb_parser.py
+
+      - name: Sync ATB to unified catalog
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python sync_atb_catalog.py

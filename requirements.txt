@@ -1,6 +1,10 @@
-supabase
-curl-cffi
 beautifulsoup4
-tqdm
-python-dotenv
+curl-cffi
+edge-tts
+fastapi
+httpx
 psycopg2-binary
+python-dotenv
+supabase
+tqdm
+uvicorn[standard]

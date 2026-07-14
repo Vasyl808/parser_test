@@ -2,8 +2,8 @@ name: Silpo Parser
 
 on:
   schedule:
-    # Run every Sunday at 00:00 UTC
-    - cron: '0 0 * * 0'
+    # Run every Thursday at 02:00 UTC (05:00 Kyiv summer / 04:00 Kyiv winter)
+    - cron: '0 2 * * 4'
   workflow_dispatch:  # Allow manual trigger
 
 jobs:
@@ -32,3 +32,9 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: python silpo_api_parser.py
+
+      - name: Sync Silpo to unified catalog
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python sync_silpo_catalog.py

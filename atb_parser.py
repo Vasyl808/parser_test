@@ -30,6 +30,8 @@ from dotenv import load_dotenv
 from supabase import create_client, Client
 from tqdm import tqdm
 
+from unified_catalog import sync_atb_products_to_unified_catalog
+
 if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
@@ -297,8 +299,13 @@ def extract_products_from_html(
                 if rp is not None:
                     regular_price = rp
 
-        link = card.find("a", href=True)
-        url = urljoin(page_url, link["href"]) if link else ""
+        # Extract product page URL (not wishlist or other links)
+        product_link = (
+            card.select_one(".catalog-item__title a[href]")
+            or card.select_one("a.catalog-item__photo-link[href]")
+            or card.find("a", href=lambda h: h and "/product/" in h)
+        )
+        url = urljoin(page_url, product_link["href"]) if product_link else ""
 
         cart = card.select_one(".b-addToCart")
         sku = ""
@@ -558,6 +565,11 @@ def main():
     init_database()
     supabase = get_supabase_client()
     batch_upsert_to_supabase(supabase, all_products)
+
+    print(f"\n[КРОК 5.1] Синхронізація unified catalog для shopping agent...")
+    catalog_stats = sync_atb_products_to_unified_catalog(supabase, all_products)
+    for key, value in catalog_stats.items():
+        print(f"  {key}: {value}")
     
     print(f"\n[КРОК 6] Збереження резервної копії в CSV...")
     with open(OUTPUT_CSV, "w", newline="", encoding="utf-8-sig") as f:
