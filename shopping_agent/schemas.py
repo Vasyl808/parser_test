@@ -31,6 +31,7 @@ class ProductResult(BaseModel):
     normalized_unit: str | None = None
     price_per_unit: float | None = None
     url: str | None = None
+    image_url: str | None = None
     score: float | None = None
 
 

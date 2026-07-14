@@ -271,6 +271,9 @@ def map_item_to_row(item: Dict[str, Any], category_name: str, category_url: str)
     slug = item.get("slug", "")
     url = urljoin(BASE_URL, f"/product/{slug}") if slug else ""
 
+    icon = item.get("icon", "")
+    image_url = f"https://images.silpo.ua/v2/products/400x400/webp/{icon}" if icon else ""
+
     sku = item.get("externalProductId")
     sku = str(sku) if sku is not None else ""
 
@@ -283,6 +286,7 @@ def map_item_to_row(item: Dict[str, Any], category_name: str, category_url: str)
         "weight": weight,
         "unit": unit,
         "url": url,
+        "image_url": image_url,
         "current_price": current_price,
         "regular_price": regular_price,
         "discount": calc_discount_percent(current_price, regular_price),

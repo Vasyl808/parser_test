@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS silpo_products (
     section_slug TEXT,
     promotions TEXT,
     shop TEXT,
+    image_url TEXT,
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -50,6 +51,7 @@ CREATE TABLE IF NOT EXISTS atb_products (
     category_name TEXT,
     category_url TEXT,
     shop TEXT,
+    image_url TEXT,
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -99,6 +101,7 @@ CREATE TABLE IF NOT EXISTS store_products (
     normalized_unit TEXT,
     price_per_unit NUMERIC,
     url TEXT,
+    image_url TEXT,
     current_price NUMERIC,
     regular_price NUMERIC,
     discount TEXT,
@@ -185,6 +188,7 @@ SELECT
     sp.raw_category_name,
     cc.name AS canonical_category_name,
     sp.url,
+    sp.image_url,
     sp.updated_at,
     pm.match_score,
     pm.match_method,

@@ -220,6 +220,7 @@ class ProductRepository:
             "normalized_unit": row.get("normalized_unit"),
             "price_per_unit": _to_float(row.get("price_per_unit")),
             "url": row.get("url"),
+            "image_url": row.get("image_url"),
             "score": _to_float(row.get("score")),
         }
 

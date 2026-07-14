@@ -6,6 +6,8 @@ const FALLBACK_VOICES = [
   { short_name: 'uk-UA-OstapNeural', display_name: 'Остап' }
 ]
 
+const API_BASE = import.meta.env.VITE_API_URL || ''
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('chat') // 'chat' or 'promos'
   const [stores, setStores] = useState([])
@@ -36,7 +38,7 @@ export default function App() {
 
   // Fetch voices and stores on mount
   useEffect(() => {
-    fetch('/voice/voices')
+    fetch(API_BASE + '/voice/voices')
       .then(res => res.json())
       .then(data => {
         if (data && data.length > 0) {
@@ -45,7 +47,7 @@ export default function App() {
       })
       .catch(err => console.error('Failed to load voices:', err))
 
-    fetch('/stores')
+    fetch(API_BASE + '/stores')
       .then(res => res.json())
       .then(data => setStores(data || []))
       .catch(err => console.error('Failed to load stores:', err))
@@ -53,9 +55,9 @@ export default function App() {
 
   const fetchPromos = (offset = 0) => {
     setIsPromosLoading(true)
-    const url = selectedStore 
+    const url = API_BASE + (selectedStore 
       ? `/products/promos?store=${selectedStore}&limit=100&offset=${offset}`
-      : `/products/promos?limit=100&offset=${offset}`
+      : `/products/promos?limit=100&offset=${offset}`)
       
     fetch(url)
       .then(res => res.json())
@@ -179,7 +181,7 @@ export default function App() {
     setIsProcessing(true)
 
     try {
-      const chatRes = await fetch('/chat', {
+      const chatRes = await fetch(API_BASE + '/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: text, limit: 100, use_llm: true })
@@ -218,7 +220,7 @@ export default function App() {
     setIsProcessing(true)
     
     try {
-      const synthRes = await fetch('/voice/synthesize', {
+      const synthRes = await fetch(API_BASE + '/voice/synthesize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, voice: selectedVoice, rate: '+18%' })
@@ -355,6 +357,11 @@ export default function App() {
                         <div className="products-grid">
                           {msg.products.map(p => (
                             <div key={p.store_product_id} className="product-card">
+                              {p.image_url && (
+                                <div className="product-image-container">
+                                  <img src={p.image_url} alt={p.name} className="product-image" loading="lazy" />
+                                </div>
+                              )}
                               <div className="product-title">{p.name}</div>
                               <div className="product-price-row">
                                 {p.current_price && <span className="current-price">{p.current_price.toFixed(2)} ₴</span>}
@@ -509,6 +516,11 @@ export default function App() {
                 <div className="products-grid promos-grid">
                   {promos.map(p => (
                     <div key={p.store_product_id} className="product-card">
+                      {p.image_url && (
+                        <div className="product-image-container">
+                          <img src={p.image_url} alt={p.name} className="product-image" loading="lazy" />
+                        </div>
+                      )}
                       <div className="product-title">{p.name}</div>
                       <div className="product-price-row">
                         {p.current_price && <span className="current-price">{p.current_price.toFixed(2)} ₴</span>}

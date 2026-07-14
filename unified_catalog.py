@@ -159,6 +159,7 @@ def _build_store_product_row(
         "normalized_unit": normalized_unit or None,
         "price_per_unit": _decimal_to_db(price_per_unit),
         "url": raw.get("url") or None,
+        "image_url": raw.get("image_url") or None,
         "current_price": raw.get("current_price"),
         "regular_price": raw.get("regular_price"),
         "discount": str(raw.get("discount") or "").strip() or None,
