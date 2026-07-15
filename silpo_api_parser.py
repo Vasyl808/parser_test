@@ -129,10 +129,10 @@ def sanitize_product_for_db(product: Dict[str, Any]) -> Dict[str, Any]:
     stock = row.get("stock")
     if stock is not None:
         f = safe_float(stock)
-        if f is not None and f == int(f):
-            row["stock"] = int(f)
-        elif f is not None:
-            row["stock"] = f
+        if f is not None:
+            row["stock"] = int(f)  # ✅ Завжди INTEGER
+        else:
+            row["stock"] = None
     return row
 
 

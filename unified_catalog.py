@@ -21,7 +21,7 @@ from catalog_normalization import (
 )
 
 
-DEFAULT_BATCH_SIZE = 500
+DEFAULT_BATCH_SIZE = 100
 ATB_STORE = {"name": "ATB", "slug": "atb"}
 SILPO_STORE = {"name": "Silpo", "slug": "silpo"}
 
