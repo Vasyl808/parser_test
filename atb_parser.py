@@ -59,7 +59,7 @@ CSV_FIELDS = [
     "sku", "name", "brand", "weight", "unit",
     "url", "current_price", "regular_price", "discount",
     "is_promo", "is_available", "is_economy",
-    "category_name", "category_url", "shop",
+    "category_name", "category_url", "shop", "image_url",
 ]
 
 DELAY_BETWEEN_PAGES = 0.8
@@ -320,6 +320,11 @@ def extract_products_from_html(
             unit = cart.get("data-current-measure", "")
             discount = cart.get("data-discount", "")
 
+        image_url = ""
+        img_el = card.select_one("img.catalog-item__img") or card.select_one("picture img") or card.select_one("img")
+        if img_el and img_el.get("src"):
+            image_url = img_el["src"]
+
         if not sku and url:
             m = re.search(r"/product/(\d+)", url)
             if m:
@@ -348,6 +353,7 @@ def extract_products_from_html(
             "category_name": category_name,
             "category_url": category_url,
             "shop": "atb",
+            "image_url": image_url,
         })
 
     if not products:
@@ -369,6 +375,11 @@ def extract_products_from_html(
                 is_promo = bool(
                     regular_price and current_price and regular_price > current_price
                 )
+                image_url = d.get("image") or d.get("picture") or ""
+                if isinstance(image_url, list) and image_url:
+                    image_url = image_url[0]
+                elif isinstance(image_url, dict):
+                    image_url = image_url.get("url", "") or image_url.get("src", "")
                 products.append({
                     "sku": str(d.get("id") or d.get("sku") or ""),
                     "name": name,
@@ -385,6 +396,7 @@ def extract_products_from_html(
                     "category_name": category_name,
                     "category_url": category_url,
                     "shop": "atb",
+                    "image_url": str(image_url),
                 })
 
     return products
