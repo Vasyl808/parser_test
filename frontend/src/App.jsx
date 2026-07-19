@@ -52,6 +52,9 @@ export default function App() {
       })
 
       if (!synthRes.ok) throw new Error('TTS Error')
+      
+      if (useStore.getState().status !== 'Генерую голос...') return;
+
       const audioBlob = await synthRes.blob()
       const audioUrl = URL.createObjectURL(audioBlob)
       
@@ -119,6 +122,15 @@ export default function App() {
     }
     recognitionRef.current = recognition
   }, [status, selectedVoice])
+
+  const stopVoice = () => {
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current.currentTime = 0
+    }
+    setStatus('Готовий')
+    useStore.getState().setIsProcessing(false)
+  }
 
   const toggleRecording = () => {
     if (isProcessing) return
@@ -359,6 +371,19 @@ export default function App() {
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                       <line x1="22" y1="2" x2="11" y2="13"></line>
                       <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                    </svg>
+                  </button>
+                ) : (status === 'Відповідаю...' || status === 'Генерую голос...') ? (
+                  <button 
+                    type="button"
+                    className="icon-button stop-button"
+                    onClick={stopVoice}
+                    aria-label="Зупинити озвучення"
+                    title="Зупинити озвучення"
+                    style={{ color: '#ff4d4f' }}
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="6" y="6" width="12" height="12"></rect>
                     </svg>
                   </button>
                 ) : (
