@@ -90,7 +90,10 @@ try:
     _static_dir.mkdir(exist_ok=True)
 except OSError:
     pass # In Vercel serverless environment, filesystem is read-only
-app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
+
+# Only mount if the directory actually exists (prevents crash on Vercel)
+if _static_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 
 # ---------------------------------------------------------------------------
