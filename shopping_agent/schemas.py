@@ -37,8 +37,8 @@ class ProductResult(BaseModel):
 
 class ChatResponse(BaseModel):
     answer: str
-    intent: str
-    query: str
+    intent: str = ""
+    query: str = ""
     used_llm: bool
     products: list[ProductResult]
     meta: dict[str, Any] = Field(default_factory=dict)

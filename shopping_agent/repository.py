@@ -11,10 +11,6 @@ from shopping_agent.config import Settings
 
 SEARCH_FIELDS = (
     "normalized_name",
-    "name",
-    "brand",
-    "raw_category_name",
-    "canonical_category_name",
 )
 
 
@@ -61,6 +57,10 @@ class ProductRepository:
         query: str,
         limit: int = 20,
         only_available: bool = True,
+        min_price: float | None = None,
+        max_price: float | None = None,
+        category: str | None = None,
+        sort_by: str | None = None,
     ) -> list[dict[str, Any]]:
         normalized_query = normalize_product_name(query)
         tokens = [
@@ -73,22 +73,64 @@ class ProductRepository:
         if only_available:
             request = request.eq("is_available", True)
 
+        if min_price is not None:
+            request = request.gte("current_price", min_price)
+        if max_price is not None:
+            request = request.lte("current_price", max_price)
+        if category:
+            request = request.ilike("canonical_category_name", f"%{category}%")
+
         if tokens:
             conditions = []
             for token in tokens:
                 for field in SEARCH_FIELDS:
                     conditions.append(f"{field}.ilike.%{token}%")
             request = request.or_(",".join(conditions))
-
-        fetch_limit = min(max(limit * 8, 40), 250)
+        fetch_limit = 250
         response = request.limit(fetch_limit).execute()
         rows = [self._public_product(row) for row in response.data or []]
         ranked = self._rank(rows, normalized_query)
-        return ranked[:limit]
+        
+        # Consider all reasonable matches (score >= 0.5) for sorting, or fallback to top N
+        top_matches = [r for r in ranked if r.get("score", 0) >= 0.5]
+        if not top_matches:
+            top_matches = ranked[:max(limit * 3, 20)]
+        
+        if sort_by == "price_asc":
+            top_matches.sort(key=lambda row: row.get("current_price") or 10**9)
+        elif sort_by == "price_desc":
+            top_matches.sort(key=lambda row: row.get("current_price") or 0, reverse=True)
+        elif sort_by == "discount":
+            top_matches.sort(
+                key=lambda row: (
+                    -self._discount_number(row.get("discount")),
+                    row.get("current_price") is None,
+                    row.get("current_price") or 10**9,
+                )
+            )
+            
+        return top_matches[:limit]
 
-    def get_promos(self, query: str = "", limit: int = 20, offset: int = 0, store_slug: str | None = None) -> list[dict[str, Any]]:
+    def get_promos(
+        self, 
+        query: str = "", 
+        limit: int = 20, 
+        offset: int = 0, 
+        store_slug: str | None = None,
+        min_price: float | None = None,
+        max_price: float | None = None,
+        category: str | None = None,
+        sort_by: str | None = None,
+    ) -> list[dict[str, Any]]:
         if query.strip():
-            rows = self.search_products(query, limit=200, only_available=True)
+            rows = self.search_products(
+                query, 
+                limit=200, 
+                only_available=True,
+                min_price=min_price,
+                max_price=max_price,
+                category=category,
+            )
             rows = [row for row in rows if row["is_promo"] or row["is_economy"]]
             if store_slug:
                 rows = [row for row in rows if row.get("store_slug") == store_slug]
@@ -101,16 +143,28 @@ class ProductRepository:
             )
             if store_slug:
                 request = request.eq("store_slug", store_slug)
+            if min_price is not None:
+                request = request.gte("current_price", min_price)
+            if max_price is not None:
+                request = request.lte("current_price", max_price)
+            if category:
+                request = request.ilike("canonical_category_name", f"%{category}%")
+                
             response = request.limit(1000).execute()
             rows = [self._public_product(row) for row in response.data or []]
 
-        rows.sort(
-            key=lambda row: (
-                -self._discount_number(row.get("discount")),
-                row.get("current_price") is None,
-                row.get("current_price") or 10**9,
+        if sort_by == "price_asc":
+            rows.sort(key=lambda row: row.get("current_price") or 10**9)
+        elif sort_by == "price_desc":
+            rows.sort(key=lambda row: row.get("current_price") or 0, reverse=True)
+        else:
+            rows.sort(
+                key=lambda row: (
+                    -self._discount_number(row.get("discount")),
+                    row.get("current_price") is None,
+                    row.get("current_price") or 10**9,
+                )
             )
-        )
         return rows[offset:offset+limit]
 
     def find_cheapest(self, query: str = "", limit: int = 20) -> list[dict[str, Any]]:
@@ -188,7 +242,19 @@ class ProductRepository:
                 normalized_query,
                 normalize_product_name(row.get("name")),
             ).ratio()
-            row["score"] = round((overlap * 0.7) + (name_ratio * 0.3), 4)
+            
+            # Penalize items with junk words if the query didn't ask for them
+            junk_penalty = 0.0
+            junk_words = [
+                "згущен", "сирок", "морозиво", "напій", "печиво", "цукерки", 
+                "десерт", "кефір", "гель", "мило", "шампунь", "крем", "маска", "піна"
+            ]
+            if not any(w in normalized_query for w in junk_words):
+                row_name = normalize_text(row.get("name") or "")
+                if any(w in row_name for w in junk_words):
+                    junk_penalty = 0.4
+                    
+            row["score"] = round((overlap * 0.7) + (name_ratio * 0.3) - junk_penalty, 4)
 
         rows.sort(
             key=lambda row: (

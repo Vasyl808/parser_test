@@ -432,12 +432,6 @@ def main():
     
     batch_upsert_to_supabase(supabase, all_products)
     
-    print(f"\n[КРОК 5.1] Синхронізація unified catalog для shopping agent...")
-    from unified_catalog import sync_silpo_products_to_unified_catalog
-    catalog_stats = sync_silpo_products_to_unified_catalog(supabase, all_products)
-    for key, value in catalog_stats.items():
-        print(f"  {key}: {value}")
-
     print(f"  [OK] Дані успішно збережено в Supabase")
     print(f"\n{'=' * 60}")
     print(f"  Готово! {len(all_products)} унікальних товарів")

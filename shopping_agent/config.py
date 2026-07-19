@@ -28,8 +28,8 @@ class Settings:
     supabase_url: str | None
     supabase_key: str | None
     gemini_api_key: str | None = None
-    gemini_model: str = "gemini-3.5-flash"
-    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta/interactions"
+    gemini_model: str = "gemini-3.1-flash-lite"
+    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
     agent_max_products: int = 100
     cors_origins: list[str] = field(default_factory=lambda: ["*"])
     tts_voice: str = "uk-UA-PolinaNeural"
@@ -45,7 +45,7 @@ class Settings:
             gemini_model=os.getenv("GEMINI_MODEL", "gemini-3.5-flash"),
             gemini_base_url=os.getenv(
                 "GEMINI_BASE_URL",
-                "https://generativelanguage.googleapis.com/v1beta/interactions",
+                "https://generativelanguage.googleapis.com/v1beta",
             ),
             agent_max_products=_int_from_env("AGENT_MAX_PRODUCTS", 100),
             cors_origins=_origins_from_env(os.getenv("CORS_ORIGINS")),

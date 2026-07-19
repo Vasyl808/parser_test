@@ -1,34 +1,31 @@
-import { useState, useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useStore } from './store'
 import './App.css'
-
-const FALLBACK_VOICES = [
-  { short_name: 'uk-UA-PolinaNeural', display_name: 'Поліна' },
-  { short_name: 'uk-UA-OstapNeural', display_name: 'Остап' }
-]
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('chat') // 'chat' or 'promos'
-  const [stores, setStores] = useState([])
-  const [selectedStore, setSelectedStore] = useState('')
-  const [promos, setPromos] = useState([])
-  const [isPromosLoading, setIsPromosLoading] = useState(false)
-  const [promoOffset, setPromoOffset] = useState(0)
-  const [hasMorePromos, setHasMorePromos] = useState(true)
+  const {
+    activeTab, setActiveTab,
+    stores, voices, selectedVoice, setSelectedVoice,
+    status, setStatus,
+    promos, isPromosLoading, hasMorePromos,
+    filters, setFilters, fetchPromos, loadMorePromos, fetchStoresAndVoices,
+    messages, isProcessing, sendMessage
+  } = useStore()
 
-  const [messages, setMessages] = useState([])
   const [isRecording, setIsRecording] = useState(false)
   const [interimText, setInterimText] = useState('')
   const [inputText, setInputText] = useState('')
-  const [status, setStatus] = useState('Готовий')
-  const [voices, setVoices] = useState(FALLBACK_VOICES)
-  const [selectedVoice, setSelectedVoice] = useState('uk-UA-PolinaNeural')
-  const [isProcessing, setIsProcessing] = useState(false)
+  const [showFilters, setShowFilters] = useState(false)
   
   const recognitionRef = useRef(null)
   const audioRef = useRef(null)
   const chatEndRef = useRef(null)
+
+  useEffect(() => {
+    fetchStoresAndVoices()
+  }, [])
 
   useEffect(() => {
     if (activeTab === 'chat') {
@@ -36,60 +33,44 @@ export default function App() {
     }
   }, [messages, interimText, isProcessing, status, activeTab])
 
-  // Fetch voices and stores on mount
-  useEffect(() => {
-    fetch(API_BASE + '/voice/voices')
-      .then(res => res.json())
-      .then(data => {
-        if (data && data.length > 0) {
-          setVoices(data)
-        }
-      })
-      .catch(err => console.error('Failed to load voices:', err))
-
-    fetch(API_BASE + '/stores')
-      .then(res => res.json())
-      .then(data => setStores(data || []))
-      .catch(err => console.error('Failed to load stores:', err))
-  }, [])
-
-  const fetchPromos = (offset = 0) => {
-    setIsPromosLoading(true)
-    const url = API_BASE + (selectedStore 
-      ? `/products/promos?store=${selectedStore}&limit=100&offset=${offset}`
-      : `/products/promos?limit=100&offset=${offset}`)
-      
-    fetch(url)
-      .then(res => res.json())
-      .then(data => {
-        const newPromos = data || []
-        if (offset === 0) {
-          setPromos(newPromos)
-        } else {
-          setPromos(prev => [...prev, ...newPromos])
-        }
-        setHasMorePromos(newPromos.length === 100)
-        setIsPromosLoading(false)
-      })
-      .catch(err => {
-        console.error('Failed to load promos:', err)
-        setIsPromosLoading(false)
-      })
-  }
-
-  // Fetch promos when tab is active or store changes
+  // Fetch promos when filters change or tab changes
   useEffect(() => {
     if (activeTab === 'promos') {
-      setPromoOffset(0)
       fetchPromos(0)
     }
-  }, [activeTab, selectedStore])
+  }, [activeTab, filters.store, filters.searchQuery, filters.minPrice, filters.maxPrice, filters.category, filters.sortBy])
 
-  const loadMorePromos = () => {
-    if (isPromosLoading) return
-    const nextOffset = promoOffset + 100
-    setPromoOffset(nextOffset)
-    fetchPromos(nextOffset)
+  const playVoice = async (text) => {
+    if (!text) return
+    setStatus('Генерую голос...')
+    useStore.getState().setIsProcessing(true)
+    try {
+      const synthRes = await fetch(API_BASE + '/voice/synthesize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voice: selectedVoice, rate: '+18%' })
+      })
+
+      if (!synthRes.ok) throw new Error('TTS Error')
+      const audioBlob = await synthRes.blob()
+      const audioUrl = URL.createObjectURL(audioBlob)
+      
+      if (audioRef.current) audioRef.current.pause()
+      
+      const audio = new Audio(audioUrl)
+      audioRef.current = audio
+      audio.play()
+      
+      audio.onended = () => {
+        setStatus('Готовий')
+        useStore.getState().setIsProcessing(false)
+      }
+      setStatus('Відповідаю...')
+    } catch (err) {
+       console.error("TTS failed", err)
+       setStatus('Готовий')
+       useStore.getState().setIsProcessing(false)
+    }
   }
 
   useEffect(() => {
@@ -108,27 +89,19 @@ export default function App() {
       setIsRecording(true)
       setStatus('Уважно слухаю...')
       setInterimText('')
-      if (audioRef.current) {
-        audioRef.current.pause()
-      }
+      if (audioRef.current) audioRef.current.pause()
     }
 
     recognition.onresult = (event) => {
       let finalTranscript = ''
       let interimTranscript = ''
-
       for (let i = event.resultIndex; i < event.results.length; ++i) {
-        if (event.results[i].isFinal) {
-          finalTranscript += event.results[i][0].transcript
-        } else {
-          interimTranscript += event.results[i][0].transcript
-        }
+        if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript
+        else interimTranscript += event.results[i][0].transcript
       }
-
       setInterimText(interimTranscript)
-      
       if (finalTranscript) {
-        handleUserMessage(finalTranscript, true)
+        sendMessage(finalTranscript, true, playVoice)
       }
     }
 
@@ -144,14 +117,12 @@ export default function App() {
       setStatus(prev => prev === 'Уважно слухаю...' ? 'Готовий' : prev)
       setInterimText('')
     }
-
     recognitionRef.current = recognition
-  }, [status])
+  }, [status, selectedVoice])
 
   const toggleRecording = () => {
     if (isProcessing) return
     if (!recognitionRef.current) return
-
     if (isRecording) {
       recognitionRef.current.stop()
     } else {
@@ -167,89 +138,14 @@ export default function App() {
     e.preventDefault()
     if (isProcessing) return
     if (inputText.trim()) {
-      handleUserMessage(inputText, false)
+      sendMessage(inputText, false)
       setInputText('')
     }
   }
 
-  const handleUserMessage = async (text, fromVoice = false) => {
-    if (!text.trim() || isProcessing) return
-
-    const userMsg = { id: Date.now(), sender: 'user', text }
-    setMessages(prev => [...prev, userMsg])
-    setStatus('Шукаю відповідь...')
-    setIsProcessing(true)
-
-    try {
-      const chatRes = await fetch(API_BASE + '/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, limit: 100, use_llm: true })
-      })
-      
-      if (!chatRes.ok) throw new Error('API Error')
-      
-      const chatData = await chatRes.json()
-      
-      const agentMsg = {
-        id: Date.now() + 1,
-        sender: 'agent',
-        text: chatData.answer,
-        products: chatData.products
-      }
-      setMessages(prev => [...prev, agentMsg])
-
-      if (fromVoice) {
-        await playVoice(chatData.answer)
-      } else {
-        setStatus('Готовий')
-        setIsProcessing(false)
-      }
-
-    } catch (err) {
-      console.error(err)
-      setStatus('Виникла помилка під час обробки.')
-      setIsProcessing(false)
-    }
-  }
-
-  const playVoice = async (text) => {
-    if (!text) return
-    
-    setStatus('Генерую голос...')
-    setIsProcessing(true)
-    
-    try {
-      const synthRes = await fetch(API_BASE + '/voice/synthesize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, voice: selectedVoice, rate: '+18%' })
-      })
-
-      if (!synthRes.ok) throw new Error('TTS Error')
-
-      const audioBlob = await synthRes.blob()
-      const audioUrl = URL.createObjectURL(audioBlob)
-      
-      if (audioRef.current) {
-        audioRef.current.pause()
-      }
-      
-      const audio = new Audio(audioUrl)
-      audioRef.current = audio
-      audio.play()
-      
-      audio.onended = () => {
-        setStatus('Готовий')
-        setIsProcessing(false)
-      }
-      
-      setStatus('Відповідаю...')
-    } catch (err) {
-       console.error("TTS failed", err)
-       setStatus('Готовий')
-       setIsProcessing(false)
-    }
+  const handleFilterChange = (e) => {
+    const { name, value } = e.target
+    setFilters({ [name]: value })
   }
 
   return (
@@ -309,13 +205,13 @@ export default function App() {
                     Я знаю актуальні ціни та акції в супермаркетах. Напиши або скажи:
                   </div>
                   <div className="suggestions">
-                    <button className="suggestion-pill" onClick={() => handleUserMessage("Де зараз дешеве молоко?", false)}>
+                    <button className="suggestion-pill" onClick={() => sendMessage("Де зараз дешеве молоко?", false)}>
                       🥛 Де зараз дешеве молоко?
                     </button>
-                    <button className="suggestion-pill" onClick={() => handleUserMessage("Які знижки на каву?", false)}>
+                    <button className="suggestion-pill" onClick={() => sendMessage("Які знижки на каву?", false)}>
                       ☕ Які знижки на каву?
                     </button>
-                    <button className="suggestion-pill" onClick={() => handleUserMessage("Покажи найдешевші яйця", false)}>
+                    <button className="suggestion-pill" onClick={() => sendMessage("Покажи найдешевші яйця", false)}>
                       🥚 Покажи найдешевші яйця
                     </button>
                   </div>
@@ -488,29 +384,107 @@ export default function App() {
       ) : (
         <main className="promos-main">
           <div className="promos-container">
-            <div className="store-filters">
+            <div className="promos-header-row">
+              <div className="search-bar">
+                <svg className="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input 
+                  type="text" 
+                  name="searchQuery"
+                  placeholder="Пошук акційних товарів..." 
+                  value={filters.searchQuery}
+                  onChange={(e) => setFilters({ searchQuery: e.target.value })}
+                />
+              </div>
               <button 
-                className={`store-pill ${selectedStore === '' ? 'active' : ''}`}
-                onClick={() => setSelectedStore('')}
+                className={`filter-toggle-btn ${showFilters ? 'active' : ''}`}
+                onClick={() => setShowFilters(!showFilters)}
               >
-                Всі магазини
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+                </svg>
+                Фільтри
               </button>
-              {stores.map(store => (
-                <button 
-                  key={store.id}
-                  className={`store-pill ${selectedStore === store.slug ? 'active' : ''}`}
-                  onClick={() => setSelectedStore(store.slug)}
-                >
-                  {store.name}
-                </button>
-              ))}
             </div>
+
+            {showFilters && (
+              <div className="filters-panel">
+                <div className="filter-group">
+                  <label>Магазин</label>
+                  <div className="store-filters">
+                    <button 
+                      className={`store-pill ${filters.store === '' ? 'active' : ''}`}
+                      onClick={() => setFilters({ store: '' })}
+                    >
+                      Всі
+                    </button>
+                    {stores.map(store => (
+                      <button 
+                        key={store.id}
+                        className={`store-pill ${filters.store === store.slug ? 'active' : ''}`}
+                        onClick={() => setFilters({ store: store.slug })}
+                      >
+                        {store.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="filter-group row-group">
+                  <div className="filter-item">
+                    <label>Ціна від (₴)</label>
+                    <input 
+                      type="number" 
+                      name="minPrice" 
+                      value={filters.minPrice} 
+                      onChange={handleFilterChange} 
+                      placeholder="0"
+                      min="0"
+                    />
+                  </div>
+                  <div className="filter-item">
+                    <label>Ціна до (₴)</label>
+                    <input 
+                      type="number" 
+                      name="maxPrice" 
+                      value={filters.maxPrice} 
+                      onChange={handleFilterChange} 
+                      placeholder="Напр. 20000"
+                      min="0"
+                    />
+                  </div>
+                </div>
+
+                <div className="filter-group row-group">
+                  <div className="filter-item">
+                    <label>Сортування</label>
+                    <select name="sortBy" value={filters.sortBy} onChange={handleFilterChange}>
+                      <option value="">Найбільша знижка</option>
+                      <option value="price_asc">Від найдешевших</option>
+                      <option value="price_desc">Від найдорожчих</option>
+                    </select>
+                  </div>
+                  <div className="filter-item">
+                    <label>Категорія (пошук)</label>
+                    <input 
+                      type="text" 
+                      name="category" 
+                      value={filters.category} 
+                      onChange={handleFilterChange} 
+                      placeholder="Напр. м'ясо"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
             
             <div className="promos-content">
             {isPromosLoading && promos.length === 0 ? (
               <div className="promos-loading">Завантаження акцій...</div>
             ) : promos.length === 0 ? (
-              <div className="promos-empty">Акційних товарів не знайдено.</div>
+              <div className="promos-empty">Акційних товарів не знайдено за такими критеріями.</div>
             ) : (
               <>
                 <div className="products-grid promos-grid">

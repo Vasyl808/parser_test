@@ -30,7 +30,6 @@ from dotenv import load_dotenv
 from supabase import create_client, Client
 from tqdm import tqdm
 
-from unified_catalog import sync_atb_products_to_unified_catalog
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
@@ -578,11 +577,6 @@ def main():
     supabase = get_supabase_client()
     batch_upsert_to_supabase(supabase, all_products)
 
-    print(f"\n[КРОК 5.1] Синхронізація unified catalog для shopping agent...")
-    catalog_stats = sync_atb_products_to_unified_catalog(supabase, all_products)
-    for key, value in catalog_stats.items():
-        print(f"  {key}: {value}")
-    
     print(f"\n[КРОК 6] Збереження резервної копії в CSV...")
     with open(OUTPUT_CSV, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)

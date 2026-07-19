@@ -405,13 +405,55 @@ def fetch_all_silpo_products(client: Client, page_size: int = 1000) -> list[dict
     return _fetch_all_from_table(client, "silpo_products", page_size)
 
 
-def sync_existing_atb_products() -> dict[str, int]:
+def sync_existing_atb_products(page_size: int = 5000) -> dict[str, int]:
+    """Sync ATB from DB to unified catalog, page by page to avoid timeouts."""
     client = get_supabase_client_from_env()
-    products = fetch_all_atb_products(client)
-    return sync_atb_products_to_unified_catalog(client, products)
+    totals: dict[str, int] = {}
+    start = 0
+    page = 1
+    while True:
+        response = (
+            client.table("atb_products")
+            .select("*")
+            .range(start, start + page_size - 1)
+            .execute()
+        )
+        products = response.data or []
+        if not products:
+            break
+        print(f"  [ATB Sync] Page {page}: {len(products)} products...")
+        stats = sync_atb_products_to_unified_catalog(client, products)
+        for k, v in stats.items():
+            totals[k] = totals.get(k, 0) + v
+        if len(products) < page_size:
+            break
+        start += page_size
+        page += 1
+    return totals
 
 
-def sync_existing_silpo_products() -> dict[str, int]:
+def sync_existing_silpo_products(page_size: int = 5000) -> dict[str, int]:
+    """Sync Silpo from DB to unified catalog, page by page to avoid timeouts."""
     client = get_supabase_client_from_env()
-    products = fetch_all_silpo_products(client)
-    return sync_silpo_products_to_unified_catalog(client, products)
+    totals: dict[str, int] = {}
+    start = 0
+    page = 1
+    while True:
+        response = (
+            client.table("silpo_products")
+            .select("*")
+            .range(start, start + page_size - 1)
+            .execute()
+        )
+        products = response.data or []
+        if not products:
+            break
+        print(f"  [Silpo Sync] Page {page}: {len(products)} products...")
+        stats = sync_silpo_products_to_unified_catalog(client, products)
+        for k, v in stats.items():
+            totals[k] = totals.get(k, 0) + v
+        if len(products) < page_size:
+            break
+        start += page_size
+        page += 1
+    return totals

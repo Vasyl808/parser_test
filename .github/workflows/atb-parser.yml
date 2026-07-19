@@ -3,30 +3,30 @@ name: ATB Parser
 on:
   schedule:
     # Run every Wednesday at 02:00 UTC (05:00 Kyiv summer / 04:00 Kyiv winter)
-    - cron: '0 2 * * 3'
-  workflow_dispatch:  # Allow manual trigger
+    - cron: "0 2 * * 3"
+  workflow_dispatch: # Allow manual trigger
 
 jobs:
   parse:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      
+          python-version: "3.11"
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          
+
       - name: Setup Cloudflare WARP
         uses: fscarmen/warp-on-actions@v1.2
-      
+
       - name: Run ATB parser
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -38,3 +38,9 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: python sync_atb_catalog.py
+
+      - name: Cross-store product matching (ATB ↔ Silpo)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python cross_store_matcher.py

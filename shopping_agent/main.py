@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
 from pathlib import Path
 
@@ -15,6 +16,16 @@ from shopping_agent.repository import ProductRepository
 from shopping_agent.schemas import ChatRequest, ChatResponse, HealthResponse, ProductResult
 from shopping_agent.service import ShoppingAgent
 from shopping_agent.tts import TextToSpeech
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -99,10 +110,16 @@ async def chat(
     request: ChatRequest,
     agent: ShoppingAgent = Depends(get_agent),
 ) -> ChatResponse:
+    logger.info("POST /chat | message=%r | use_llm=%s", request.message, request.use_llm)
     result = await agent.chat(
         message=request.message,
         limit=request.limit,
         use_llm=request.use_llm,
+    )
+    logger.info(
+        "POST /chat DONE | intent=%s | products=%d | used_llm=%s | error=%s",
+        result.get("intent"), len(result.get("products", [])),
+        result.get("used_llm"), result.get("meta", {}).get("error")
     )
     return ChatResponse(**result)
 
@@ -122,9 +139,22 @@ def promo_products(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     store: str | None = Query(default=None, max_length=50),
+    min_price: float | None = Query(default=None, ge=0),
+    max_price: float | None = Query(default=None, ge=0),
+    category: str | None = Query(default=None, max_length=100),
+    sort_by: str | None = Query(default=None, max_length=20),
     repository: ProductRepository = Depends(get_repository),
 ) -> list[ProductResult]:
-    return [ProductResult(**row) for row in repository.get_promos(q, limit=limit, offset=offset, store_slug=store)]
+    return [ProductResult(**row) for row in repository.get_promos(
+        q, 
+        limit=limit, 
+        offset=offset, 
+        store_slug=store,
+        min_price=min_price,
+        max_price=max_price,
+        category=category,
+        sort_by=sort_by
+    )]
 
 
 @app.get("/products/cheapest", response_model=list[ProductResult])

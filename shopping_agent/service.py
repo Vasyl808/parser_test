@@ -1,22 +1,83 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
-from shopping_agent.intent import detect_intent, extract_product_query
+logger = logging.getLogger(__name__)
+
 from shopping_agent.llm import GeminiClient
 from shopping_agent.repository import ProductRepository
 
 
+def _discount_number(val) -> float:
+    if val is None:
+        return 0.0
+    try:
+        return float(str(val).replace("%", "").strip())
+    except (ValueError, TypeError):
+        return 0.0
+
+
 SYSTEM_INSTRUCTION = """
-Ти помічник з покупок для українського користувача.
-Відповідай українською, коротко, дружньо і практично.
-НЕ ВИКОРИСТОВУЙ маркдаун (ніяких зірочок ** чи маркерів списку *). Пиши простим суцільним текстом. Це важливо для коректного озвучення!
-Використовуй тільки товари з переданого JSON-контексту.
-Завжди вказуй назву магазину (АТБ, Сільпо) поряд з кожним товаром, щоб користувач знав де купити.
-Не вигадуй ціни, магазини, знижки або наявність.
-Якщо даних недостатньо, прямо скажи що не бачиш цього в базі.
+Ти AI помічник з покупок (АТБ та Сільпо). Завжди використовуй інструмент search_products — ніколи не вигадуй товари.
+
+ЛІМІТИ (визначай динамічно):
+- Один товар → limit=3-5
+- Товар з різноманіттям (морозиво, сир, вода) → limit=7-10
+- Інгредієнт рецепту → limit=2-3, але виклич search_products для КОЖНОГО інгредієнту окремо
+- Якщо >3 страви одночасно — обмежся першими 3-ма і скажи про це
+
+СОРТУВАННЯ:
+- "дешеве/найдешевше/вигідне" → sort_by="price_asc"
+- "акція/знижка/промо" → only_promos=true, sort_by="discount"
+- "дороге/преміум" → sort_by="price_desc"
+
+ВІДПОВІДЬ: коротко, українською, без маркдауну, зі цінами та назвами магазинів.
 """.strip()
+
+TOOLS = [{
+    "function_declarations": [
+        {
+            "name": "search_products",
+            "description": "Пошук товарів в базі даних магазинів АТБ та Сільпо. Можна викликати кілька разів для різних інгредієнтів рецепту.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "query": {
+                        "type": "STRING",
+                        "description": "Пошуковий запит — назва товару або інгредієнту (наприклад 'молоко', 'яйця', 'буряк')"
+                    },
+                    "min_price": {
+                        "type": "NUMBER",
+                        "description": "Мінімальна ціна у гривнях (опціонально)"
+                    },
+                    "max_price": {
+                        "type": "NUMBER",
+                        "description": "Максимальна ціна у гривнях (опціонально)"
+                    },
+                    "only_promos": {
+                        "type": "BOOLEAN",
+                        "description": "Якщо true — повертає тільки акційні товари зі знижками"
+                    },
+                    "sort_by": {
+                        "type": "STRING",
+                        "description": "Метод сортування: 'price_asc' (від дешевих), 'price_desc' (від дорогих), 'discount' (найбільша знижка)"
+                    },
+                    "limit": {
+                        "type": "INTEGER",
+                        "description": "Кількість товарів. Визначай динамічно: 2-3 для інгредієнту рецепту, 3-5 для простого запиту, 7-10 для запиту з різноманіттям (морозиво, сир тощо)"
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    ]
+}]
+
+# Hard cap to prevent runaway token usage
+MAX_PRODUCTS_TOTAL = 50
+MAX_AGENT_TURNS = 12  # Enough for a recipe with ~10 ingredients
 
 
 class ShoppingAgent:
@@ -36,167 +97,137 @@ class ShoppingAgent:
         limit: int | None = None,
         use_llm: bool = True,
     ) -> dict[str, Any]:
-        limit = limit or self.default_limit
-        intent = detect_intent(message)
-        query = extract_product_query(message)
-        products = self._retrieve_products(intent, query, limit)
-
-        used_llm = False
-        answer = ""
-        llm_error: str | None = None
-
-        if use_llm and self.llm and products:
-            try:
-                answer = await self.llm.generate(
-                    SYSTEM_INSTRUCTION,
-                    self._build_prompt(message, intent, query, products),
-                )
-                used_llm = True
-            except Exception as exc:
-                llm_error = str(exc)
-
-        if not answer:
-            answer = self._fallback_answer(intent, query, products)
-
-        meta: dict[str, Any] = {
-            "product_count": len(products),
-            "llm_error": llm_error,
-        }
-        return {
-            "answer": answer,
-            "intent": intent,
-            "query": query,
-            "used_llm": used_llm,
-            "products": products,
-            "meta": meta,
-        }
-
-    def _retrieve_products(
-        self,
-        intent: str,
-        query: str,
-        limit: int,
-    ) -> list[dict[str, Any]]:
-        if intent == "promos":
-            return self.repository.get_promos(query=query, limit=limit)
-        if intent == "cheapest":
-            return self.repository.find_cheapest(query=query, limit=limit)
-        return self.repository.search_products(query=query, limit=limit)
-
-    def _build_prompt(
-        self,
-        message: str,
-        intent: str,
-        query: str,
-        products: list[dict[str, Any]],
-    ) -> str:
-        context = [
-            {
-                "store": product.get("store"),
-                "sku": product.get("store_sku"),
-                "name": product.get("name"),
-                "brand": product.get("brand"),
-                "current_price": product.get("current_price"),
-                "regular_price": product.get("regular_price"),
-                "discount": product.get("discount"),
-                "is_promo": product.get("is_promo"),
-                "is_economy": product.get("is_economy"),
-                "is_available": product.get("is_available"),
-                "category": product.get("canonical_category_name")
-                or product.get("raw_category_name"),
-                "normalized_weight": product.get("normalized_weight"),
-                "normalized_unit": product.get("normalized_unit"),
-                "price_per_unit": product.get("price_per_unit"),
-                "url": product.get("url"),
+        if not use_llm or not self.llm:
+            return {
+                "answer": "Режим без LLM більше не підтримується.",
+                "used_llm": False,
+                "products": [],
+                "meta": {}
             }
-            for product in products
-        ]
-        return json.dumps(
-            {
-                "user_question": message,
-                "detected_intent": intent,
-                "search_query": query,
-                "products": context,
-                "answer_rules": [
-                    "Use only products from products.",
-                    "Mention exact prices for recommendations.",
-                    "If price_per_unit exists, use it for fair comparison.",
-                    "Prefer available promo/economy products when relevant.",
-                ],
-            },
-            ensure_ascii=False,
-            default=str,
+
+        messages = [{"role": "user", "parts": [{"text": message}]}]
+        all_products: list[dict[str, Any]] = []
+        llm_error = None
+
+        try:
+            for turn in range(MAX_AGENT_TURNS):
+                logger.info("[Agent turn %d] Sending %d messages to Gemini", turn + 1, len(messages))
+                response = await self.llm.chat_with_tools(SYSTEM_INSTRUCTION, messages, TOOLS)
+
+                if response["type"] == "function_calls":
+                    calls = response["calls"]
+                    logger.info("[Agent turn %d] Got %d function call(s)", turn + 1, len(calls))
+                    
+                    # Build model message exactly as returned to preserve signatures/thoughts
+                    if "model_content" in response:
+                        messages.append(response["model_content"])
+                    else:
+                        model_parts = []
+                        for call in calls:
+                            model_parts.append({
+                                "functionCall": call.get("raw_call", {"name": call["name"], "args": call["args"]})
+                            })
+                        messages.append({"role": "model", "parts": model_parts})
+
+                    # Execute each call and collect results
+                    func_response_parts = []
+                    for call in calls:
+                        if call["name"] == "search_products":
+                            logger.info("[Agent] Executing search_products(%s)", call["args"])
+                            rows = self._execute_search(call["args"])
+                            logger.info("[Agent] search_products returned %d rows", len(rows))
+                            all_products.extend(rows)
+                            
+                            simplified = [self._simplify_product(r) for r in rows]
+                            func_response_parts.append({
+                                "functionResponse": {
+                                    "name": call["name"],
+                                    "response": {
+                                        "name": call["name"],
+                                        "content": simplified
+                                    }
+                                }
+                            })
+
+                    messages.append({"role": "function", "parts": func_response_parts})
+
+                    # Safety: stop if we've accumulated too many products
+                    if len(all_products) >= MAX_PRODUCTS_TOTAL:
+                        logger.warning("[Agent] Hit MAX_PRODUCTS_TOTAL=%d, breaking loop", MAX_PRODUCTS_TOTAL)
+                        break
+
+                elif response["type"] == "text":
+                    logger.info("[Agent turn %d] Got final text answer (%d chars), %d products total", turn + 1, len(response['text']), len(all_products))
+                    # Deduplicate products by store_product_id
+                    seen = set()
+                    unique_products = []
+                    for p in all_products:
+                        pid = p.get("store_product_id")
+                        if pid and pid not in seen:
+                            seen.add(pid)
+                            unique_products.append(p)
+                        elif not pid:
+                            unique_products.append(p)
+
+                    return {
+                        "answer": response["text"],
+                        "intent": "react_agent",
+                        "query": message,
+                        "used_llm": True,
+                        "products": unique_products,
+                        "meta": {
+                            "product_count": len(unique_products),
+                            "agent_turns": turn + 1,
+                        }
+                    }
+        except Exception as exc:
+            llm_error = str(exc)
+            logger.error("[Agent] Error: %s", llm_error, exc_info=True)
+
+        return {
+            "answer": "Вибачте, виникла помилка під час пошуку. Спробуйте ще раз.",
+            "intent": "error",
+            "query": message,
+            "used_llm": True,
+            "products": all_products,
+            "meta": {"error": llm_error}
+        }
+
+    def _execute_search(self, args: dict) -> list[dict[str, Any]]:
+        query = args.get("query", "")
+        only_promos = args.get("only_promos", False)
+        min_price = args.get("min_price")
+        max_price = args.get("max_price")
+        sort_by = args.get("sort_by")
+        func_limit = args.get("limit", 5)
+
+        if only_promos:
+            return self.repository.get_promos(
+                query=query,
+                limit=func_limit,
+                min_price=min_price,
+                max_price=max_price,
+                sort_by=sort_by,
+            )
+        
+        return self.repository.search_products(
+            query=query,
+            limit=func_limit,
+            min_price=min_price,
+            max_price=max_price,
+            only_available=True,
+            sort_by=sort_by,
         )
 
-    def _fallback_answer(
-        self,
-        intent: str,
-        query: str,
-        products: list[dict[str, Any]],
-    ) -> str:
-        if not products:
-            if query:
-                return f"Не знайшов актуальних товарів по запиту «{query}»."
-            return "Не знайшов актуальних товарів для цього запиту."
-
-        if intent == "promos":
-            title = "🔥 Акційні позиції"
-        elif intent == "cheapest":
-            title = "💰 Найдешевші позиції"
-        else:
-            title = "🛒 Ось що знайшов"
-
-        # Group by store
-        by_store: dict[str, list[dict[str, Any]]] = {}
-        for product in products[: self.default_limit]:
-            store = product.get("store") or "Магазин"
-            by_store.setdefault(store, []).append(product)
-
-        lines = [f"{title}:\n"]
-        idx = 1
-        for store_name, store_products in by_store.items():
-            store_emoji = "🏪" if store_name == "ATB" else "🟢" if store_name == "Silpo" else "🛍️"
-            lines.append(f"{store_emoji} {store_name}:")
-            for product in store_products:
-                lines.append(self._format_product(product, idx))
-                idx += 1
-            lines.append("")  # blank line between stores
-        return "\n".join(lines).rstrip()
-
-    def _format_product(self, product: dict[str, Any], index: int = 0) -> str:
-        name = product.get("name") or "Без назви"
-        price = product.get("current_price")
-        regular = product.get("regular_price")
-        discount = product.get("discount")
-        ppu = product.get("price_per_unit")
-        unit_raw = product.get("normalized_unit")
-        is_economy = product.get("is_economy")
-
-        # Header line
-        prefix = f"{index}. " if index else "• "
-        line = f"{prefix}{name}"
-
-        # Price line
-        price_parts = []
-        if price is not None:
-            price_parts.append(f"   💵 {price:.2f} грн")
-            if regular and regular != price:
-                price_parts[0] += f"  (було {regular:.2f} грн)"
-
-        # Tags line
-        tags = []
-        if discount:
-            tags.append(f"🏷️ -{discount}%")
-        if is_economy:
-            tags.append("⭐ Ціна тижня")
-        if ppu and unit_raw:
-            unit_label = "кг" if unit_raw == "kg" else "л" if unit_raw == "l" else "шт"
-            tags.append(f"📦 {ppu:.2f} грн/{unit_label}")
-
-        result = line
-        if price_parts:
-            result += "\n" + "\n".join(price_parts)
-        if tags:
-            result += "\n   " + "  ".join(tags)
-        return result
-
+    def _simplify_product(self, product: dict) -> dict:
+        """Compact representation sent to LLM context to save tokens."""
+        return {
+            "name": product.get("name"),
+            "store": product.get("store"),
+            "current_price": product.get("current_price"),
+            "regular_price": product.get("regular_price"),
+            "discount": product.get("discount"),
+            "is_promo": product.get("is_promo"),
+            "price_per_unit": product.get("price_per_unit"),
+            "normalized_unit": product.get("normalized_unit"),
+        }
