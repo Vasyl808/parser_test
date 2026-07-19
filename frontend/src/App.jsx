@@ -132,16 +132,23 @@ export default function App() {
     useStore.getState().setIsProcessing(false)
   }
 
-  const toggleRecording = () => {
+  const toggleRecording = async () => {
     if (isProcessing) return
     if (!recognitionRef.current) return
     if (isRecording) {
       recognitionRef.current.stop()
     } else {
       try {
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+          // Explicitly ask for mic permission to trigger the browser prompt on mobile
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          // We don't need to keep the stream for SpeechRecognition, so we can stop its tracks immediately
+          stream.getTracks().forEach(track => track.stop());
+        }
         recognitionRef.current.start()
       } catch (err) {
-        console.error("Could not start recognition", err)
+        console.error("Could not start recognition or mic permission denied", err)
+        setStatus('Помилка доступу до мікрофона.')
       }
     }
   }
