@@ -1,0 +1,19 @@
+[project]
+name = "shopping-agent"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "beautifulsoup4",
+    "curl-cffi",
+    "edge-tts",
+    "fastapi",
+    "httpx",
+    "psycopg2-binary",
+    "python-dotenv",
+    "supabase",
+    "tqdm",
+    "uvicorn[standard]",
+]
+
+[tool.vercel]
+entrypoint = "shopping_agent.main:app"

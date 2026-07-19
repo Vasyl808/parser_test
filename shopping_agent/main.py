@@ -86,7 +86,10 @@ app.add_middleware(
 
 # Mount the static directory so voice_ui.html (and future assets) are served.
 _static_dir = Path(__file__).resolve().parent / "static"
-_static_dir.mkdir(exist_ok=True)
+try:
+    _static_dir.mkdir(exist_ok=True)
+except OSError:
+    pass # In Vercel serverless environment, filesystem is read-only
 app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 

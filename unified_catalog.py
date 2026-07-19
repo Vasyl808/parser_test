@@ -42,6 +42,34 @@ def _bool(value: Any, default: bool = False) -> bool:
     return bool(value)
 
 
+def _normalize_discount(raw_discount: Any, current_price: Any, regular_price: Any) -> str | None:
+    """Always store discount as a percentage string (e.g. '25').
+
+    ATB scraper stores the absolute monetary discount (e.g. '86'), while Silpo
+    already stores the percent.  We re-derive the percent from the prices
+    whenever both are present, which gives the same result for Silpo and
+    fixes ATB in one pass.
+    """
+    try:
+        cp = float(current_price) if current_price is not None else None
+        rp = float(regular_price) if regular_price is not None else None
+        if cp is not None and rp is not None and rp > cp and rp > 0:
+            pct = round((rp - cp) / rp * 100)
+            return str(pct)
+    except (TypeError, ValueError):
+        pass
+
+    # Fallback: try to read digits from the raw field (works if it is already a %)
+    raw = str(raw_discount or "").strip()
+    if raw:
+        digits = "".join(ch for ch in raw if ch.isdigit())
+        # Only trust it if it looks like a realistic discount percent (1-99)
+        if digits and 1 <= int(digits) <= 99:
+            return digits
+
+    return None
+
+
 def get_supabase_client_from_env() -> Client:
     load_dotenv()
     supabase_url = os.getenv("SUPABASE_URL")
@@ -162,7 +190,11 @@ def _build_store_product_row(
         "image_url": raw.get("image_url") or None,
         "current_price": raw.get("current_price"),
         "regular_price": raw.get("regular_price"),
-        "discount": str(raw.get("discount") or "").strip() or None,
+        "discount": _normalize_discount(
+            raw.get("discount"),
+            raw.get("current_price"),
+            raw.get("regular_price"),
+        ),
         "is_promo": _bool(raw.get("is_promo")),
         "is_available": _bool(raw.get("is_available"), default=True),
         "is_economy": _bool(raw.get("is_economy")),
