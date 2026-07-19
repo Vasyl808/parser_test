@@ -103,7 +103,7 @@ class ProductRepository:
         elif sort_by == "discount":
             top_matches.sort(
                 key=lambda row: (
-                    -self._discount_number(row.get("discount")),
+                    -self._discount_percentage(row),
                     row.get("current_price") is None,
                     row.get("current_price") or 10**9,
                 )
@@ -160,7 +160,7 @@ class ProductRepository:
         else:
             rows.sort(
                 key=lambda row: (
-                    -self._discount_number(row.get("discount")),
+                    -self._discount_percentage(row),
                     row.get("current_price") is None,
                     row.get("current_price") or 10**9,
                 )
@@ -291,9 +291,17 @@ class ProductRepository:
         }
 
     @staticmethod
-    def _discount_number(value: Any) -> int:
-        if value is None:
-            return 0
-        digits = "".join(ch for ch in str(value) if ch.isdigit())
-        return int(digits) if digits else 0
+    def _discount_percentage(row: dict[str, Any]) -> float:
+        regular = _to_float(row.get("regular_price"))
+        current = _to_float(row.get("current_price"))
+        if regular and current and regular > current and regular > 0:
+            return (regular - current) / regular * 100.0
+            
+        val = row.get("discount")
+        if val and "%" in str(val):
+            digits = "".join(ch for ch in str(val) if ch.isdigit())
+            if digits:
+                return float(digits)
+                
+        return 0.0
 
